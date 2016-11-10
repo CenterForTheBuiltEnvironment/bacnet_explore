@@ -6,7 +6,7 @@ Created on Mon Nov  7 12:31:36 2016
 """
 
 import sys
-
+import time
 
 from bacpypes.debugging import ModuleLogger
 from bacpypes.consolelogging import ConfigArgumentParser
@@ -17,13 +17,12 @@ from bacpypes.pdu import Address, GlobalBroadcast
 from bacpypes.app import LocalDeviceObject, BIPSimpleApplication
 
 from bacpypes.apdu import Error, AbortPDU, SimpleAckPDU, WhoIsRequest, IAmRequest, \
-    ReadPropertyRequest, ReadPropertyACK, WritePropertyRequest 
+    ReadPropertyRequest, ReadPropertyACK
 from bacpypes.object import get_object_class, get_datatype
 from bacpypes.basetypes import ServicesSupported
 from bacpypes.errors import DecodingError
-from bacpypes.constructeddata import Array, Any
-from bacpypes.primitivedata import Null, Atomic, Integer, Unsigned, Real
-
+from bacpypes.constructeddata import Array
+from bacpypes.primitivedata import Unsigned
 # some debugging
 _debug = 1
 _log = ModuleLogger(globals())
@@ -31,7 +30,9 @@ _log = ModuleLogger(globals())
 #
 #   WhoIsApplication
 #
-global apdu_g
+global valueRead
+global this_app
+global deviceList
 
 class Applications(BIPSimpleApplication):
 
@@ -41,13 +42,19 @@ class Applications(BIPSimpleApplication):
 
         # keep track of requests to line up responses
         self._request = None
+        self._timer = 0
+        self._initialTime = 0
 
     def request(self, apdu):
+        global deviceList
         if _debug: Applications._debug("request %r", apdu)
 
         # save a copy of the request
         self._request = apdu
-
+        self._initialTime = time.strftime("%s")
+        
+        if (isinstance(self._request, WhoIsRequest)):
+            deviceList = []
         # forward it along
         BIPSimpleApplication.request(self, apdu)
 
@@ -67,18 +74,24 @@ class Applications(BIPSimpleApplication):
                 pass
             else:
                 # print out the contents
-                sys.stdout.write('pduSource = ' + repr(apdu.pduSource) + '\n')
+                '''sys.stdout.write('pduSource = ' + repr(apdu.pduSource) + '\n')
                 sys.stdout.write('iAmDeviceIdentifier = ' + str(apdu.iAmDeviceIdentifier) + '\n')
                 sys.stdout.write('maxAPDULengthAccepted = ' + str(apdu.maxAPDULengthAccepted) + '\n')
                 sys.stdout.write('segmentationSupported = ' + str(apdu.segmentationSupported) + '\n')
                 sys.stdout.write('vendorID = ' + str(apdu.vendorID) + '\n')
-                sys.stdout.flush()
+                sys.stdout.flush()'''
+                deviceList.append(apdu)
 
         # forward it along
         BIPSimpleApplication.indication(self, apdu)
+        currTime = time.strftime("%s")
+        if int(currTime) - int(self._initialTime) >= self._timer:
+            stop()
         stop()
         
     def confirmation(self, apdu):
+        global valueRead
+        valueRead = None
         if _debug: Applications._debug("confirmation %r", apdu)
 
         if isinstance(apdu, Error):
@@ -109,11 +122,13 @@ class Applications(BIPSimpleApplication):
                 value = apdu.propertyValue.cast_out(datatype)
             if _debug: Applications._debug("    - value: %r", value)
 
-            sys.stdout.write(str(value) + '\n')
-            sys.stdout.flush()
+            #sys.stdout.write(str(value) + '\n')
+            #sys.stdout.flush()
+            valueRead = value
         stop()
 
 def Init():
+    global this_app
     args = ConfigArgumentParser(description=__doc__).parse_args()
     if _debug: _log.debug("initialization")
     if _debug: _log.debug("    - args: %r", args)
@@ -136,7 +151,7 @@ def Init():
     pss['writePropertyMultiple'] = 1
     this_device.protocolServicesSupported = pss.value
     
-    return this_device, args.ini.address
+    this_app = Applications(this_device, args.ini.address)
         
 
 def Request_whois(args):
@@ -162,7 +177,7 @@ def Request_whois(args):
         print("exception: %r", error)
         
 def Request_read(args):
-    args = args.split()
+
     if _debug: print("do_read %r", args)
 
     try:
@@ -174,7 +189,7 @@ def Request_read(args):
             raise ValueError("unknown object type")
 
         obj_inst = int(obj_inst)
-
+        
         datatype = get_datatype(obj_type, prop_id)
         if not datatype:
             raise ValueError("invalid property for object type")
@@ -189,28 +204,29 @@ def Request_read(args):
         if len(args) == 5:
             request.propertyArrayIndex = int(args[4])
         if _debug: print("    - request: %r", request)
-        
+
         ### return the request
         return request
         
     except Exception as error:
-            print("exception: %r", error)        
+        print("exception: %r", error)
+            
                 
-def main():
-    args = "192.168.1.112 device 7012 objectList"
+def read_prop(args):
+    #global this_app
     request = Request_read(args)
-    
-    ### Initiralize the device    
-    this_device, address = Init()
-    
-    ### create applications
-    this_app = Applications(this_device, address)
-    
+    if request == None:
+        return None
     ### do the service request
     this_app.request(request)
     run()
-    
-if __name__ == "__main__":
-    main()
+    return valueRead
+
+def whois(args, timer):
+    request = Request_whois(args)
+    this_app.request(request)
+    this_app._timer = timer
+    run()
+    return deviceList
 
 
