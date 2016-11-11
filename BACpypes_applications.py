@@ -14,6 +14,8 @@ from bacpypes.consolelogging import ConfigArgumentParser
 from bacpypes.core import run, stop
 
 from bacpypes.pdu import Address, GlobalBroadcast
+from bacpypes.apdu import ReadPropertyMultipleRequest, PropertyReference, \
+    ReadAccessSpecification, ReadPropertyMultipleACK
 from bacpypes.app import LocalDeviceObject, BIPSimpleApplication
 
 from bacpypes.apdu import Error, AbortPDU, SimpleAckPDU, WhoIsRequest, IAmRequest, \
@@ -23,6 +25,8 @@ from bacpypes.basetypes import ServicesSupported
 from bacpypes.errors import DecodingError
 from bacpypes.constructeddata import Array
 from bacpypes.primitivedata import Unsigned
+from bacpypes.basetypes import PropertyIdentifier
+
 # some debugging
 _debug = 1
 _log = ModuleLogger(globals())
@@ -74,8 +78,8 @@ class Applications(BIPSimpleApplication):
                 pass
             else:
                 # print out the contents
-                '''sys.stdout.write('pduSource = ' + repr(apdu.pduSource) + '\n')
-                sys.stdout.write('iAmDeviceIdentifier = ' + str(apdu.iAmDeviceIdentifier) + '\n')
+                #sys.stdout.write('pduSource = ' + repr(apdu.pduSource) + '\n')
+                '''sys.stdout.write('iAmDeviceIdentifier = ' + str(apdu.iAmDeviceIdentifier) + '\n')
                 sys.stdout.write('maxAPDULengthAccepted = ' + str(apdu.maxAPDULengthAccepted) + '\n')
                 sys.stdout.write('segmentationSupported = ' + str(apdu.segmentationSupported) + '\n')
                 sys.stdout.write('vendorID = ' + str(apdu.vendorID) + '\n')
@@ -101,7 +105,7 @@ class Applications(BIPSimpleApplication):
         elif isinstance(apdu, AbortPDU):
             apdu.debug_contents()
 
-        if isinstance(apdu, SimpleAckPDU):
+        elif isinstance(apdu, SimpleAckPDU):
             sys.stdout.write("ack\n")
             sys.stdout.flush()
 
@@ -121,10 +125,60 @@ class Applications(BIPSimpleApplication):
             else:
                 value = apdu.propertyValue.cast_out(datatype)
             if _debug: Applications._debug("    - value: %r", value)
-
-            #sys.stdout.write(str(value) + '\n')
-            #sys.stdout.flush()
             valueRead = value
+        
+        ### readPropertyMulti     
+        elif (isinstance(self._request, ReadPropertyMultipleRequest)) and (isinstance(apdu, ReadPropertyMultipleACK)):
+            valueRead = []            
+            # loop through the results
+            for result in apdu.listOfReadAccessResults:
+                # here is the object identifier
+                objectIdentifier = result.objectIdentifier
+                if _debug: Applications._debug("    - objectIdentifier: %r", objectIdentifier)
+
+                # now come the property values per object
+                for element in result.listOfResults:
+                    # get the property and array index
+                    propertyIdentifier = element.propertyIdentifier
+                    if _debug: Applications._debug("    - propertyIdentifier: %r", propertyIdentifier)
+                    propertyArrayIndex = element.propertyArrayIndex
+                    if _debug: Applications._debug("    - propertyArrayIndex: %r", propertyArrayIndex)
+
+                    # here is the read result
+                    readResult = element.readResult
+
+                    sys.stdout.write(propertyIdentifier)
+                    if propertyArrayIndex is not None:
+                        sys.stdout.write("[" + str(propertyArrayIndex) + "]")
+
+                    # check for an error
+                    if readResult.propertyAccessError is not None:
+                        sys.stdout.write(" ! " + str(readResult.propertyAccessError) + '\n')
+
+                    else:
+                        # here is the value
+                        propertyValue = readResult.propertyValue
+
+                        # find the datatype
+                        datatype = get_datatype(objectIdentifier[0], propertyIdentifier)
+                        if _debug: Applications._debug("    - datatype: %r", datatype)
+                        if not datatype:
+                            raise TypeError("unknown datatype")
+
+                        # special case for array parts, others are managed by cast_out
+                        if issubclass(datatype, Array) and (propertyArrayIndex is not None):
+                            if propertyArrayIndex == 0:
+                                value = propertyValue.cast_out(Unsigned)
+                            else:
+                                value = propertyValue.cast_out(datatype.subtype)
+                        else:
+                            value = propertyValue.cast_out(datatype)
+                        if _debug: Applications._debug("    - value: %r", value)
+
+                        sys.stdout.write(" = " + str(value) + '\n')                       
+                        valueRead.append(value)
+                    sys.stdout.flush()
+        ### finished this reading
         stop()
 
 def Init():
@@ -156,7 +210,6 @@ def Init():
 
 def Request_whois(args):
     args = args.split()
-
     try:
         # build a request
         request = WhoIsRequest()
@@ -210,10 +263,90 @@ def Request_read(args):
         
     except Exception as error:
         print("exception: %r", error)
+
+def request_readMulti(args):
+    if _debug: print ("read reqeust %r", args)
+
+    try:
+        i = 0
+        addr = args[i]
+        i += 1
+
+        read_access_spec_list = []
+        while i < len(args):
+            obj_type = args[i]
+            i += 1
+
+            if obj_type.isdigit():
+                obj_type = int(obj_type)
+            elif not get_object_class(obj_type):
+                raise ValueError("unknown object type")
+            
+            obj_inst = int(args[i])
+            i += 1
+
+            prop_reference_list = []
+            while i < len(args):  
+            ### bug here, if the name of next object is a kind of property, 
+            ### then there will be a bug, for example the object notificationClass 
+                prop_id = args[i]
+                if prop_id not in PropertyIdentifier.enumerations:
+                    break
+
+                i += 1
+                if prop_id in ('all', 'required', 'optional'):
+                    pass
+                else:
+                    datatype = get_datatype(obj_type, prop_id)
+                    if not datatype:
+                        raise ValueError("invalid property for object type")
+
+                # build a property reference
+                prop_reference = PropertyReference(
+                    propertyIdentifier=prop_id,
+                    )
+
+                # check for an array index
+                if (i < len(args)) and args[i].isdigit():
+                    prop_reference.propertyArrayIndex = int(args[i])
+                    i += 1
+                print obj_type, obj_inst, prop_id
+                # add it to the list
+                prop_reference_list.append(prop_reference)
+
+            # check for at least one property
+            if not prop_reference_list:
+                raise ValueError("provide at least one property")
+
+            # build a read access specification
+            read_access_spec = ReadAccessSpecification(
+                objectIdentifier=(obj_type, obj_inst),
+                listOfPropertyReferences=prop_reference_list,
+                )
+
+            # add it to the list
+            read_access_spec_list.append(read_access_spec)
+        # check for at least one
+        if not read_access_spec_list:
+            raise RuntimeError("at least one read access specification required")
+
+        # build the request
+        request = ReadPropertyMultipleRequest(
+            listOfReadAccessSpecs=read_access_spec_list,
+            )
+        request.pduDestination = Address(addr)
+        if _debug: print("    - request: %r", request)
+
+        # give it to the application
+        return request
+
+    except Exception as error:
+        print "test"
+        print ("exception: %r", error)
             
                 
 def read_prop(args):
-    #global this_app
+
     request = Request_read(args)
     if request == None:
         return None
@@ -221,7 +354,19 @@ def read_prop(args):
     this_app.request(request)
     run()
     return valueRead
-
+    
+    
+def read_multi(args):
+    request = request_readMulti(args)
+    if request == None:
+        return None
+        
+    this_app.request(request)
+    run()
+    return valueRead
+        
+        
+        
 def whois(args, timer):
     request = Request_whois(args)
     this_app.request(request)
