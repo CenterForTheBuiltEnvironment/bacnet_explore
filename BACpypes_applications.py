@@ -28,7 +28,7 @@ from bacpypes.primitivedata import Unsigned
 from bacpypes.basetypes import PropertyIdentifier
 
 # some debugging
-_debug = 1
+_debug = 0
 _log = ModuleLogger(globals())
 
 #
@@ -147,7 +147,7 @@ class Applications(BIPSimpleApplication):
                     # here is the read result
                     readResult = element.readResult
 
-                    sys.stdout.write(propertyIdentifier)
+                    #sys.stdout.write(propertyIdentifier)
                     if propertyArrayIndex is not None:
                         sys.stdout.write("[" + str(propertyArrayIndex) + "]")
 
@@ -175,7 +175,7 @@ class Applications(BIPSimpleApplication):
                             value = propertyValue.cast_out(datatype)
                         if _debug: Applications._debug("    - value: %r", value)
 
-                        sys.stdout.write(" = " + str(value) + '\n')                       
+                        #sys.stdout.write(" = " + str(value) + '\n')                       
                         valueRead.append(value)
                     sys.stdout.flush()
         ### finished this reading
@@ -310,7 +310,6 @@ def request_readMulti(args):
                 if (i < len(args)) and args[i].isdigit():
                     prop_reference.propertyArrayIndex = int(args[i])
                     i += 1
-                print obj_type, obj_inst, prop_id
                 # add it to the list
                 prop_reference_list.append(prop_reference)
 
@@ -341,7 +340,6 @@ def request_readMulti(args):
         return request
 
     except Exception as error:
-        print "test"
         print ("exception: %r", error)
             
                 
@@ -364,8 +362,6 @@ def read_multi(args):
     this_app.request(request)
     run()
     return valueRead
-        
-        
         
 def whois(args, timer):
     request = Request_whois(args)
