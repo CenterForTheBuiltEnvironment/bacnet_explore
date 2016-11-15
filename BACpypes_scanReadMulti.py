@@ -141,7 +141,7 @@ def readDevice_pieces(devs, sleepTime):
     count = 1
     objs = []
     while(count <= objsCount):
-        args = [str(devs.pduSource), devs.iAmDeviceIdentifier[0], devs.iAmDeviceIdentifier[1], 'objectList']   
+        args = [str(devs.pduSource), devs.iAmDeviceIdentifier[0], devs.iAmDeviceIdentifier[1]]   
         objs, count = getobjects(devs, sleepTime, objsCount, count)
         
         if objs is None:
