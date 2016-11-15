@@ -144,7 +144,8 @@ class Applications(BIPSimpleApplication):
 
                     #sys.stdout.write(propertyIdentifier)
                     if propertyArrayIndex is not None:
-                        sys.stdout.write("[" + str(propertyArrayIndex) + "]")
+                        pass
+                        #sys.stdout.write("[" + str(propertyArrayIndex) + "]")
 
                     # check for an error
                     if readResult.propertyAccessError is not None:
