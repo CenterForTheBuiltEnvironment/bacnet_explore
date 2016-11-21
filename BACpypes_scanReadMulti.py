@@ -16,7 +16,7 @@ def read(args):
     s = 0
     results = None
     while((results is None) and s <= 5):
-        try: 
+        try:
             results = BACpypesAPP.read_multi(args)
         except Exception as error:
             print error
@@ -27,7 +27,7 @@ def read(args):
 ### get object list for every batch size
 def getobjects(devs, sleepTime, objsCount, count):
     batchSize = 10 ### batch size for every multi read
-    args = [str(devs.pduSource), devs.iAmDeviceIdentifier[0], devs.iAmDeviceIdentifier[1]]   
+    args = [str(devs.pduSource), devs.iAmDeviceIdentifier[0], devs.iAmDeviceIdentifier[1]]
     batch = batchSize + count
     while(count <= objsCount):
         args.append('objectList')
@@ -35,19 +35,23 @@ def getobjects(devs, sleepTime, objsCount, count):
         count += 1
         if count > batch:
             break
-        
+
     objs = read(args)
     sleep(sleepTime)
-    
+
     return objs, count
 
 
 ### read objects inforamtion in the object list
-def readObjects(objs, args, sleepTime, device):  
+def readObjects(objs, args, sleepTime, device):
     objcontent = []
     prop = ['units', 'objectName', 'description']
     newobj = []
+    k = 0
     for obj in objs:
+        if k >= 5:
+            break
+        k += 1
         ### pass notificationsClass because there is a property name is 'notificationsClass',
         ### it will cause errors
         if obj[0] == 'notificationClass':
@@ -62,16 +66,16 @@ def readObjects(objs, args, sleepTime, device):
             else:
                 objcontent.append(0)
         newobj.append(obj)
-    
+
     ### use multi read to get the information of all objects
     objects = read(args)
     sleep(sleepTime)
-    
+
     if objects is None:
         print "cannot get the objects"
         return None
-    
-    ### add object information to device 
+
+    ### add object information to device
     n = 0
     for i in range(len(newobj)):
         curObject = []
@@ -90,14 +94,14 @@ def readObjects(objs, args, sleepTime, device):
           })
     return device
 
-### read all the objects when the device support segmentation  
-def readDevice_all(devs, sleepTime): 
+### read all the objects when the device support segmentation
+def readDevice_all(devs, sleepTime):
     args = [str(devs.pduSource), devs.iAmDeviceIdentifier[0], devs.iAmDeviceIdentifier[1], \
             'objectName', 'description', 'objectList']
 
     deviceinfo = read(args)
     sleep(sleepTime)
-    
+
     if deviceinfo is None:
         print "cannot read this device now"
         return None
@@ -106,11 +110,12 @@ def readDevice_all(devs, sleepTime):
     'address': str(devs.pduSource),
     'type': devs.iAmDeviceIdentifier[0],
     'inst': devs.iAmDeviceIdentifier[1],
+    'segment': devs.segmentationSupported,
     'name': name,
     'desc': desc,
     'objs': []
     }
-    
+
     args = [str(devs.pduSource)]
     device = readObjects(objs, args, sleepTime, device)
     if device is None:
@@ -133,21 +138,22 @@ def readDevice_pieces(devs, sleepTime):
     'address': str(devs.pduSource),
     'type': devs.iAmDeviceIdentifier[0],
     'inst': devs.iAmDeviceIdentifier[1],
+    'segment': devs.segmentationSupported,
     'name': name,
     'desc': desc,
     'objs': []
     }
-    
+
     count = 1
     objs = []
     while(count <= objsCount):
-        args = [str(devs.pduSource), devs.iAmDeviceIdentifier[0], devs.iAmDeviceIdentifier[1]]   
+        args = [str(devs.pduSource), devs.iAmDeviceIdentifier[0], devs.iAmDeviceIdentifier[1]]
         objs, count = getobjects(devs, sleepTime, objsCount, count)
-        
+
         if objs is None:
             print "cannot read this device now"
             return None
-            
+
         args = [str(devs.pduSource)]
         device = readObjects(objs, args, sleepTime, device)
         if device is None:
@@ -156,30 +162,32 @@ def readDevice_pieces(devs, sleepTime):
     return device
 
 
-def main():   
-    
+def main():
+
     BACpypesAPP.Init()
-    
+
     config = ConfigParser.ConfigParser()
     config.read('BACpypes_scan.ini')
-    
+
     args = config.get('scan_information', 'IP_Address')
     args = args.split()
     sleepTime = config.get('scan_information', 'sleepTime')
     sleepTime = int(sleepTime)
-    
-    filename = config.get('scan_information', 'filename') 
+    timer = config.get('scan_information', 'timer')
+    timer =int(timer)
+
+    filename = config.get('scan_information', 'filename')
     fout = open(filename, 'wb')
-    
+
     device_list = []
-    
+
     if len(args) == 0:
-        devices = BACpypesAPP.whois(args)
+        devices = BACpypesAPP.whois(args, timer)
         sleep(sleepTime)
-        
+
         for devs in devices:
             if devs.segmentationSupported == 'segmentedBoth' or 'segmentedTransmit':
-                device = readDevice_pieces(devs, sleepTime)
+                device = readDevice_all(devs, sleepTime)
                 if device is None:
                     print "Cannot get the information of ", devs
             else:
@@ -187,14 +195,14 @@ def main():
                 if device is None:
                     print "Cannot get the information of ", devs
             device_list.append(device)
-    else:    
+    else:
         for arg in args:
-            devices = BACpypesAPP.whois(arg)
+            devices = BACpypesAPP.whois(arg, timer)
             sleep(sleepTime)
-            
+
             for devs in devices:
-                if devs.segmentationSupported == 'segmentedBoth' or 'segmentedTransmit':
-                    device = readDevice_pieces(devs, sleepTime)
+                if devs.segmentationSupported == 'segmentedBoth':
+                    device = readDevice_all(devs, sleepTime)
                     if device is None:
                         print "Cannot get the information of ", devs
                 else:
@@ -205,6 +213,6 @@ def main():
     print device_list
     json.dump(device_list, fout)
     fout.close()
-    
+
 if __name__ == "__main__":
     main()

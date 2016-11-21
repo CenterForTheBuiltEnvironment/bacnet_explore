@@ -22,7 +22,7 @@ from bacpypes.apdu import ReadPropertyMultipleRequest, PropertyReference, \
     WritePropertyMultipleRequest, WriteAccessSpecification
 from bacpypes.apdu import Error, AbortPDU, SimpleAckPDU, WhoIsRequest, IAmRequest, \
     ReadPropertyRequest, ReadPropertyACK, WritePropertyRequest
-    
+
 from bacpypes.object import get_object_class, get_datatype
 from bacpypes.basetypes import ServicesSupported, PropertyIdentifier, PropertyValue
 from bacpypes.errors import DecodingError
@@ -57,7 +57,7 @@ class Applications(BIPSimpleApplication):
         # save a copy of the request
         self._request = apdu
         self._initialTime = time.strftime("%s")
-        
+
         if (isinstance(self._request, WhoIsRequest)):
             deviceList = []
         # forward it along
@@ -90,7 +90,7 @@ class Applications(BIPSimpleApplication):
         # forward it along
         BIPSimpleApplication.indication(self, apdu)
         stop()
-        
+
     def confirmation(self, apdu):
         global valueRead
         valueRead = None
@@ -124,10 +124,10 @@ class Applications(BIPSimpleApplication):
                 value = apdu.propertyValue.cast_out(datatype)
             if _debug: Applications._debug("    - value: %r", value)
             valueRead = value
-        
-        ### readPropertyMulti     
+
+        ### readPropertyMulti
         elif (isinstance(self._request, ReadPropertyMultipleRequest)) and (isinstance(apdu, ReadPropertyMultipleACK)):
-            valueRead = []            
+            valueRead = []
             # loop through the results
             for result in apdu.listOfReadAccessResults:
                 # here is the object identifier
@@ -175,7 +175,7 @@ class Applications(BIPSimpleApplication):
                             value = propertyValue.cast_out(datatype)
                         if _debug: Applications._debug("    - value: %r", value)
 
-                        #sys.stdout.write(" = " + str(value) + '\n')                       
+                        #sys.stdout.write(" = " + str(value) + '\n')
                         valueRead.append(value)
                     sys.stdout.flush()
         ### finished this reading
@@ -186,7 +186,7 @@ def Init():
     args = ConfigArgumentParser(description=__doc__).parse_args()
     if _debug: _log.debug("initialization")
     if _debug: _log.debug("    - args: %r", args)
-    
+
     ### create a local device
     this_device = LocalDeviceObject(
         objectName=args.ini.objectname,
@@ -195,7 +195,7 @@ def Init():
         segmentationSupported=args.ini.segmentationsupported,
         vendorIdentifier=int(args.ini.vendoridentifier),
         )
-        
+
     pss = ServicesSupported()
     pss['whoIs'] = 1
     pss['iAm'] = 1
@@ -204,9 +204,9 @@ def Init():
     pss['readPropertyMultiple'] = 1
     pss['writePropertyMultiple'] = 1
     this_device.protocolServicesSupported = pss.value
-    
+
     this_app = Applications(this_device, args.ini.address)
-        
+
 
 def Request_whois(args):
     args = args.split()
@@ -228,7 +228,7 @@ def Request_whois(args):
 
     except Exception as error:
         print("exception: %r" % error)
-        
+
 def Request_read(args):
 
     if _debug: print("build read reqeust: ", args)
@@ -242,7 +242,7 @@ def Request_read(args):
             raise ValueError("unknown object type")
 
         obj_inst = int(obj_inst)
-        
+
         datatype = get_datatype(obj_type, prop_id)
         if not datatype:
             raise ValueError("invalid property for object type")
@@ -260,7 +260,7 @@ def Request_read(args):
 
         ### return the request
         return request
-        
+
     except Exception as error:
         print("exception: %r" % error)
 
@@ -281,14 +281,14 @@ def request_readMulti(args):
                 obj_type = int(obj_type)
             elif not get_object_class(obj_type):
                 raise ValueError("unknown object type")
-            
+
             obj_inst = int(args[i])
             i += 1
 
             prop_reference_list = []
-            while i < len(args):  
-            ### bug here, if the name of next object is a kind of property, 
-            ### then there will be a bug, for example the object notificationClass 
+            while i < len(args):
+            ### bug here, if the name of next object is a kind of property,
+            ### then there will be a bug, for example the object notificationClass
                 prop_id = args[i]
                 if prop_id not in PropertyIdentifier.enumerations:
                     break
@@ -420,8 +420,8 @@ def request_write(args):
         print ("exception: %r" % error)
 
 def request_writeMulti(args):
-    if _debug: ("build write request: %r" % args)
-    
+    if _debug: print ("build write request: %r" % args)
+
     try:
         i = 0
         addr = args[i]
@@ -434,16 +434,14 @@ def request_writeMulti(args):
 
             if obj_type.isdigit():
                 obj_type = int(obj_type)
-            
+
             obj_inst = args[i]
             i += 1
             obj_inst = int(obj_inst)
-            
-            
+
+
             prop_value_list = []
-            while i < len(args):  
-            ### bug here, if the name of next object is a kind of property, 
-            ### then there will be a bug, for example the object notificationClass 
+            while i < len(args):
                 prop_id = args[i]
                 if prop_id not in PropertyIdentifier.enumerations:
                     break
@@ -454,22 +452,24 @@ def request_writeMulti(args):
                     datatype = get_datatype(obj_type, prop_id)
                     if not datatype:
                         raise ValueError("invalid property for object type")
-                
+
                 value = args[i]
                 i += 1
-                
+
                 # check for an array index
                 indx = None
                 if (i < len(args)) and args[i].isdigit():
                     indx = int(args[i])
                     i += 1
-                
+                elif args[i] == '-':
+                    i += 1
+
                 # check for an priority
                 priority = None
                 if (i < len(args)) and args[i].isdigit():
                     priority = int(args[i])
                     i += 1
-                    
+
                 # change atomic values into something encodeable, null is a special case
                 if (value == 'null'):
                     value = Null()
@@ -491,14 +491,14 @@ def request_writeMulti(args):
                 elif not isinstance(value, datatype):
                     raise TypeError("invalid result datatype, expecting %s" % (datatype.__name__,))
                 if _debug: print("    - encodeable value: %r %s" % value, type(value))
-                    
+
                 # build a property value
                 prop_value = PropertyValue(
                     propertyIdentifier=prop_id,
                     )
-                
+                prop_value.value = Any()
                 try:
-                    prop_value.cast_in(value)
+                    prop_value.value.cast_in(value)
                 except Exception as error:
                     print("WriteProperty cast error: %r" % error)
 
@@ -508,7 +508,7 @@ def request_writeMulti(args):
                 # optional priority
                 if indx is not None:
                     prop_value.priority = priority
-                    
+
                 # add it to the list
                 prop_value_list.append(prop_value)
 
@@ -530,7 +530,7 @@ def request_writeMulti(args):
 
         # build the request
         request = WritePropertyMultipleRequest(
-            listOfReadAccessSpecs=write_access_spec_list,
+            listOfWriteAccessSpecs=write_access_spec_list,
             )
         request.pduDestination = Address(addr)
         if _debug: print("    - request: %r" % request)
@@ -539,7 +539,7 @@ def request_writeMulti(args):
         return request
 
     except Exception as error:
-        print ("exception: %r" % error)    
+        print ("exception: %r" % error)
 
 
 def write_prop(args):
@@ -548,16 +548,16 @@ def write_prop(args):
         return
     ### do the service request
     this_app.request(request)
-    run()    
+    run()
 
 def write_multi(args):
-    request = request_write(args)
+    request = request_writeMulti(args)
     if request == None:
         return
     ### do the service request
     this_app.request(request)
-    run()    
-                
+    run()
+
 def read_prop(args):
     request = Request_read(args)
     if request == None:
@@ -566,21 +566,19 @@ def read_prop(args):
     this_app.request(request)
     run()
     return valueRead
-    
-    
+
+
 def read_multi(args):
     request = request_readMulti(args)
     if request == None:
         return None
-        
+
     this_app.request(request)
     run()
     return valueRead
-        
+
 def whois(args, timer):
     request = Request_whois(args)
     this_app.request(request)
     run(timer=timer)
     return deviceList
-
-
