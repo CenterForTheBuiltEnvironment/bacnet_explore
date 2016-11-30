@@ -7,16 +7,13 @@ Created on Mon Nov  7 12:31:36 2016
 
 import sys
 import time
+import configparser
 
 from bacpypes.debugging import bacpypes_debugging, ModuleLogger
-from bacpypes.consolelogging import ConfigArgumentParser
-
-from bacpypes.core import run, stop
-
+from bacpypes.core import run, stop, run_timer
 from bacpypes.pdu import Address, GlobalBroadcast
 
 from bacpypes.app import LocalDeviceObject, BIPSimpleApplication
-
 from bacpypes.apdu import ReadPropertyMultipleRequest, PropertyReference, \
     ReadAccessSpecification, ReadPropertyMultipleACK, \
     WritePropertyMultipleRequest, WriteAccessSpecification
@@ -89,7 +86,6 @@ class Applications(BIPSimpleApplication):
 
         # forward it along
         BIPSimpleApplication.indication(self, apdu)
-        stop()
 
     def confirmation(self, apdu):
         global valueRead
@@ -183,17 +179,26 @@ class Applications(BIPSimpleApplication):
 
 def Init():
     global this_app
-    args = ConfigArgumentParser(description=__doc__).parse_args()
+
+    opts = configparser.ConfigParser()
+    opts.read('BACnet.ini')
+    objectName = opts.get('BACpypes', 'objectName')
+    objectIdentifier = opts.get('BACpypes', 'objectIdentifier')
+    maxApduLengthAccepted = opts.get('BACpypes', 'maxApduLengthAccepted')
+    segmentationSupported = opts.get('BACpypes', 'segmentationSupported')
+    vendorIdentifier = opts.get('BACpypes', 'vendorIdentifier')
+    address = opts.get('BACpypes', 'address')
+
     if _debug: _log.debug("initialization")
     if _debug: _log.debug("    - args: %r", args)
 
     ### create a local device
     this_device = LocalDeviceObject(
-        objectName=args.ini.objectname,
-        objectIdentifier=int(args.ini.objectidentifier),
-        maxApduLengthAccepted=int(args.ini.maxapdulengthaccepted),
-        segmentationSupported=args.ini.segmentationsupported,
-        vendorIdentifier=int(args.ini.vendoridentifier),
+        objectName=objectName,
+        objectIdentifier=int(objectIdentifier),
+        maxApduLengthAccepted=int(maxApduLengthAccepted),
+        segmentationSupported=segmentationSupported,
+        vendorIdentifier=int(vendorIdentifier),
         )
 
     pss = ServicesSupported()
@@ -204,8 +209,7 @@ def Init():
     pss['readPropertyMultiple'] = 1
     pss['writePropertyMultiple'] = 1
     this_device.protocolServicesSupported = pss.value
-
-    this_app = Applications(this_device, args.ini.address)
+    this_app = Applications(this_device, str(address))
 
 
 def Request_whois(args):
@@ -548,7 +552,7 @@ def write_prop(args):
         return
     ### do the service request
     this_app.request(request)
-    run()
+    run_timer(timer=2)
 
 def write_multi(args):
     request = request_writeMulti(args)
@@ -556,7 +560,7 @@ def write_multi(args):
         return
     ### do the service request
     this_app.request(request)
-    run()
+    run_timer(timer=2)
 
 def read_prop(args):
     request = Request_read(args)
@@ -564,7 +568,7 @@ def read_prop(args):
         return None
     ### do the service request
     this_app.request(request)
-    run()
+    run_timer(timer=2)
     return valueRead
 
 
@@ -574,11 +578,11 @@ def read_multi(args):
         return None
 
     this_app.request(request)
-    run()
+    run_timer(timer=2)
     return valueRead
 
-def whois(args, timer):
+def whois(args, timer=5):
     request = Request_whois(args)
     this_app.request(request)
-    run(timer=timer)
+    run_timer(timer=timer)
     return deviceList

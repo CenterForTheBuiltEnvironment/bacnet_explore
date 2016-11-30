@@ -1,6 +1,6 @@
 ### activate the virtual environment
-activate_this = "/home/zhanwei/virt_env/virt_hvac/bin/activate_this.py"
-execfile(activate_this, dict(__file__=activate_this))
+#activate_this = "/home/zhanwei/virt_env/virt_hvac/bin/activate_this.py"
+#execfile(activate_this, dict(__file__=activate_this))
 
 import json
 import re
@@ -29,7 +29,7 @@ def _get_class(name):
     return getattr(mod, class_name)
 
 
-class BACnetDriver(SmapDriver):
+class Driver(SmapDriver):
     """Driver for polling BACnet points"""
     def setup(self, opts):
         #bacnet.Init(opts.get('iface', 'eth0'), '47900')
@@ -37,7 +37,7 @@ class BACnetDriver(SmapDriver):
 
         with open(opts.get('db'), 'r') as fp:
             self.db = json.load(fp)
-        self.rate = int(opts.get('rate', 60))
+        self.rate = int(opts.get('rate', 30))
         self.devices = map(re.compile, opts.get('devices', ['.*']))
         self.points = map(re.compile, opts.get('points', ['.*']))
         self.ffilter = _get_class(opts.get('filter')) if opts.get('filter') else None
@@ -102,27 +102,28 @@ class BACnetDriver(SmapDriver):
                     yield self.get_path(dev, obj)
 
     def _read_points(self, args):
-        s = 0
+        s = 1
         results = None
-        while((results is None) and s <= 5):
+        while((results is None) and s <= 3):
             try:
                 results = BACpypesAPP.read_multi(args)
             except Exception as error:
                 print error
-            sleep(5)
+            sleep(1)
             s += 1
         return results
 
-    def _read_seperate(self, args, devOld):
-        batch_size = 10
+    def _read(self, args, devOld, batch_size):
+
         num_points = (len(args)-1)/3
         iteration = num_points // batch_size
         val = []
         for i in range(iteration+1):
+            args_batch = [args[0]]
             if i == iteration:
-                args_batch = args[i*batch_size+1:]
+                args_batch += args[3*i*batch_size+1:]
             else:
-                args_batch = args[i*batch_size+1:(i+1)batch_size+1]
+                args_batch += args[3*i*batch_size+1:3*(i+1)*batch_size+1]
             val_seperate = self._read_points(args_batch)
             if val_seperate == None:
                 print "cannot reach the device ", devOld['name'], devOld['inst']
@@ -147,30 +148,51 @@ class BACnetDriver(SmapDriver):
         path_tmp = []
         for (dev, obj, path) in self._iter_points():
             if devOld == dev:
-                args.append(obj['type'])
-                args.append(obj['inst'])
+                args.append(str(obj['type']))
+                args.append(str(obj['inst']))
                 args.append('presentValue')
                 path_tmp.append(path)
             else:
-                if devOld['segment'] == 'segmentedBoth':
-                    val_tmp = self._read_points(args)
+                if devOld == None:
+                    devOld = dev
                 else:
-                    val_tmp = self._read_seperate(args, devOld)
-                if val_tmp == None:
-                    print "cannot reach the device ", devOld['name'], devOld['inst']
-                else:
-                    val = val + val_tmp
-                    pathList = pathList + path_tmp
+                    if devOld['segment'] == 'segmentedBoth':
+                        batch_size = 50
+                    else:
+                        batch_size = 10
+
+                    val_tmp = yield threads.deferToThread(self._read, args, devOld, batch_size)
+                    if val_tmp == None:
+                        print "cannot reach the device ", devOld['name'], devOld['inst']
+                    else:
+                        val = val + val_tmp
+                        pathList = pathList + path_tmp
                 path_tmp = [path]
                 devOld = dev
-                args = [dev['address'], obj['type'], obj['inst'], 'presentValue']
+                args = [str(dev['address']), str(obj['type']), str(obj['inst']), 'presentValue']
+
+        if devOld['segment'] == 'segmentedBoth':
+            batch_size = 50
+        else:
+            batch_size = 10
+        val_tmp = yield threads.deferToThread(self._read, args, devOld, batch_size)
+        if val_tmp == None:
+            print "cannot reach the device ", devOld['name'], devOld['inst']
+        else:
+            val = val + val_tmp
+            pathList = pathList + path_tmp
 
         ### post the value to sMAP archiver
         for i in range(len(val)):
-            if val == None:
+            if val[i] == None:
                 print "cannot read the points: ", pathList[i]
             else:
-                self._add(pathList[i], float(val[i]))
+                if val[i] == 'inactive':
+                    self._add(pathList[i], 0.0)
+                elif val[i] == 'activate':
+                    self._add(pathList[i], 1.0)
+                else:
+                    self._add(pathList[i], float(val[i]))
 
 class BACnetActuator(actuate.SmapActuator):
     def __init__(self, **opts):

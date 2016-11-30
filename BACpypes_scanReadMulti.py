@@ -25,8 +25,8 @@ def read(args):
     return results
 
 ### get object list for every batch size
-def getobjects(devs, sleepTime, objsCount, count):
-    batchSize = 10 ### batch size for every multi read
+def getobjects(devs, sleepTime, objsCount, count, batchSize):
+
     args = [str(devs.pduSource), devs.iAmDeviceIdentifier[0], devs.iAmDeviceIdentifier[1]]
     batch = batchSize + count
     while(count <= objsCount):
@@ -47,11 +47,7 @@ def readObjects(objs, args, sleepTime, device):
     objcontent = []
     prop = ['units', 'objectName', 'description']
     newobj = []
-    k = 0
     for obj in objs:
-        if k >= 5:
-            break
-        k += 1
         ### pass notificationsClass because there is a property name is 'notificationsClass',
         ### it will cause errors
         if obj[0] == 'notificationClass':
@@ -94,37 +90,8 @@ def readObjects(objs, args, sleepTime, device):
           })
     return device
 
-### read all the objects when the device support segmentation
-def readDevice_all(devs, sleepTime):
-    args = [str(devs.pduSource), devs.iAmDeviceIdentifier[0], devs.iAmDeviceIdentifier[1], \
-            'objectName', 'description', 'objectList']
-
-    deviceinfo = read(args)
-    sleep(sleepTime)
-
-    if deviceinfo is None:
-        print "cannot read this device now"
-        return None
-    name, desc, objs = deviceinfo[0], deviceinfo[1], deviceinfo[2]
-    device = {
-    'address': str(devs.pduSource),
-    'type': devs.iAmDeviceIdentifier[0],
-    'inst': devs.iAmDeviceIdentifier[1],
-    'segment': devs.segmentationSupported,
-    'name': name,
-    'desc': desc,
-    'objs': []
-    }
-
-    args = [str(devs.pduSource)]
-    device = readObjects(objs, args, sleepTime, device)
-    if device is None:
-        print "cannot read this device now"
-        return None
-    return device
-
 ### read all the objects when the objects doesn't support segmentation
-def readDevice_pieces(devs, sleepTime):
+def readDevice(devs, sleepTime, batchSize):
     args = [str(devs.pduSource), devs.iAmDeviceIdentifier[0], devs.iAmDeviceIdentifier[1], \
             'objectName', 'description', 'objectList', '0']
     deviceinfo = read(args)
@@ -148,7 +115,7 @@ def readDevice_pieces(devs, sleepTime):
     objs = []
     while(count <= objsCount):
         args = [str(devs.pduSource), devs.iAmDeviceIdentifier[0], devs.iAmDeviceIdentifier[1]]
-        objs, count = getobjects(devs, sleepTime, objsCount, count)
+        objs, count = getobjects(devs, sleepTime, objsCount, count, batchSize)
 
         if objs is None:
             print "cannot read this device now"
@@ -186,14 +153,13 @@ def main():
         sleep(sleepTime)
 
         for devs in devices:
-            if devs.segmentationSupported == 'segmentedBoth' or 'segmentedTransmit':
-                device = readDevice_all(devs, sleepTime)
-                if device is None:
-                    print "Cannot get the information of ", devs
+            if devs.segmentationSupported == 'segmentedBoth':
+                batchSize = 50
             else:
-                device = readDevice_pieces(devs, sleepTime)
-                if device is None:
-                    print "Cannot get the information of ", devs
+                batchSize = 10
+            device = readDevice(devs, sleepTime, batchSize)
+            if device is None:
+                print "Cannot get the information of ", devs
             device_list.append(device)
     else:
         for arg in args:
@@ -202,13 +168,12 @@ def main():
 
             for devs in devices:
                 if devs.segmentationSupported == 'segmentedBoth':
-                    device = readDevice_all(devs, sleepTime)
-                    if device is None:
-                        print "Cannot get the information of ", devs
+                    batchSize = 50
                 else:
-                    device = readDevice_pieces(devs, sleepTime)
-                    if device is None:
-                        print "Cannot get the information of ", devs
+                    batchSize = 10
+                device = readDevice(devs, sleepTime, batchSize)
+                if device is None:
+                    print "Cannot get the information of ", devs
                 device_list.append(device)
     print device_list
     json.dump(device_list, fout)
