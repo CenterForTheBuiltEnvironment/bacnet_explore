@@ -6,6 +6,7 @@ import json
 import re
 import operator
 import sys
+from email_utils import send_email
 
 from twisted.internet import threads, defer
 from twisted.python import log
@@ -13,9 +14,9 @@ from twisted.python import log
 from smap.driver import SmapDriver
 from smap.util import periodicSequentialCall, find
 from smap import actuate
-from pybacnet import bacnet
 
 import BACpypes_applications as BACpypesAPP
+from bacpypes.apdu import Error, AbortPDU, AbortReason
 from time import sleep
 
 def _get_class(name):
@@ -37,13 +38,14 @@ class Driver(SmapDriver):
 
         with open(opts.get('db'), 'r') as fp:
             self.db = json.load(fp)
-        self.rate = int(opts.get('rate', 30))
+        self.rate = int(opts.get('rate', 60))
         self.devices = map(re.compile, opts.get('devices', ['.*']))
         self.points = map(re.compile, opts.get('points', ['.*']))
         self.ffilter = _get_class(opts.get('filter')) if opts.get('filter') else None
         self.pathnamer = _get_class(opts.get('pathnamer')) if opts.get('pathnamer') else None
         self.actuators = _get_class(opts.get('actuators')) if opts.get('actuators') else None
         self.unit_map = _get_class(opts.get('unit_map')) if opts.get('unit_map') else None
+        self.email_list = opts.get('email_list')
 
         if self.actuators:
             act_names = [a['name'] for a in self.actuators]
@@ -101,19 +103,7 @@ class Driver(SmapDriver):
                     if not self._matches(obj['name'], self.points): continue
                     yield self.get_path(dev, obj)
 
-    def _read_points(self, args):
-        s = 1
-        results = None
-        while((results is None) and s <= 3):
-            try:
-                results = BACpypesAPP.read_multi(args)
-            except Exception as error:
-                print error
-            sleep(1)
-            s += 1
-        return results
-
-    def _read(self, args, devOld, batch_size):
+    def _read_points(self, args, devOld, batch_size):
 
         num_points = (len(args)-1)/3
         iteration = num_points // batch_size
@@ -124,9 +114,37 @@ class Driver(SmapDriver):
                 args_batch += args[3*i*batch_size+1:]
             else:
                 args_batch += args[3*i*batch_size+1:3*(i+1)*batch_size+1]
-            val_seperate = self._read_points(args_batch)
-            if val_seperate == None:
+
+            try:
+                val_seperate = BACpypesAPP.read_multi(args)
+            except Exception as error:
+                print error
                 print "cannot reach the device ", devOld['name'], devOld['inst']
+
+                subject = "Read points error"
+                msg = "cannot reach the device " + devOld['name'] + " " + str(devOld['inst']) + \
+                ". The args is: \n" + ' '.join(s for s in args) + "\nThe error is:\n"
+                send_email(self.email_list, msg+str(error), subject)
+
+            if isinstance(val_seperate, Error):
+                print "cannot reach the device ", devOld['name'], devOld['inst']
+
+                subject = "Read points error"
+                msg = "cannot reach the device " + devOld['name'] + " " + str(devOld['inst']) + \
+                ". The args is: \n" + ' '.join(s for s in args) + "\nThe error is:\n"
+                send_email(self.email_list, msg+str(val_seperate.errorCode), subject)
+            elif isinstance(val_seperate, AbortPDU):
+                print "cannot reach the device ", devOld['name'], devOld['inst']
+
+                subject = "Read points error"
+                msg = "cannot reach the device " + devOld['name'] + " " + str(devOld['inst']) + \
+                ". The args is: \n" + ' '.join(s for s in args) + \
+                "\nRequest is abortted, and the abort reason is:\n"
+                reason = AbortReason.enumerations
+                for s in reason:
+                    if reason[s] == val_seperate.apduAbortRejectReason:
+                        rejectReason = s
+                send_email(self.email_list, msg+rejectReason, subject)
             else:
                 val += val_seperate
         if len(val) == 0:
@@ -159,9 +177,9 @@ class Driver(SmapDriver):
                     if devOld['segment'] == 'segmentedBoth':
                         batch_size = 50
                     else:
-                        batch_size = 10
+                        batch_size = 2
 
-                    val_tmp = yield threads.deferToThread(self._read, args, devOld, batch_size)
+                    val_tmp = yield threads.deferToThread(self._read_points, args, devOld, batch_size)
                     if val_tmp == None:
                         print "cannot reach the device ", devOld['name'], devOld['inst']
                     else:
@@ -174,8 +192,8 @@ class Driver(SmapDriver):
         if devOld['segment'] == 'segmentedBoth':
             batch_size = 50
         else:
-            batch_size = 10
-        val_tmp = yield threads.deferToThread(self._read, args, devOld, batch_size)
+            batch_size = 2
+        val_tmp = yield threads.deferToThread(self._read_points, args, devOld, batch_size)
         if val_tmp == None:
             print "cannot reach the device ", devOld['name'], devOld['inst']
         else:
@@ -186,6 +204,9 @@ class Driver(SmapDriver):
         for i in range(len(val)):
             if val[i] == None:
                 print "cannot read the points: ", pathList[i]
+                subject = "Read points error"
+                msg = "cannot read this point, " + str(pathList[i])
+                send_email(self.email_list, msg, subject)
             else:
                 if val[i] == 'inactive':
                     self._add(pathList[i], 0.0)

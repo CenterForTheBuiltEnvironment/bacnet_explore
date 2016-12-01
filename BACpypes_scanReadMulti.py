@@ -15,7 +15,7 @@ import json
 def read(args):
     s = 0
     results = None
-    while((results is None) and s <= 5):
+    while((results is None) and s <= 3):
         try:
             results = BACpypesAPP.read_multi(args)
         except Exception as error:
@@ -149,31 +149,39 @@ def main():
     device_list = []
 
     if len(args) == 0:
-        devices = BACpypesAPP.whois(args, timer)
+        try:
+            devices = BACpypesAPP.whois('', timer)
+        except Exception as error:
+            print error
         sleep(sleepTime)
 
         for devs in devices:
+            print "begain to read device: ", devs.iAmDeviceIdentifier
             if devs.segmentationSupported == 'segmentedBoth':
                 batchSize = 50
             else:
-                batchSize = 10
+                batchSize = 2
             device = readDevice(devs, sleepTime, batchSize)
             if device is None:
-                print "Cannot get the information of ", devs
+                print "Cannot get the information of ", devs.iAmDeviceIdentifier
             device_list.append(device)
     else:
         for arg in args:
-            devices = BACpypesAPP.whois(arg, timer)
+            try:
+                devices = BACpypesAPP.whois(arg, timer)
+            except Exception as error:
+                print error
             sleep(sleepTime)
 
             for devs in devices:
+                print "begain to read device: ", devs.iAmDeviceIdentifier
                 if devs.segmentationSupported == 'segmentedBoth':
                     batchSize = 50
                 else:
-                    batchSize = 10
+                    batchSize = 2
                 device = readDevice(devs, sleepTime, batchSize)
                 if device is None:
-                    print "Cannot get the information of ", devs
+                    print "Cannot get the information of ", devs.iAmDeviceIdentifier
                 device_list.append(device)
     print device_list
     json.dump(device_list, fout)

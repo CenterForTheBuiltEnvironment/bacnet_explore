@@ -49,6 +49,8 @@ class Applications(BIPSimpleApplication):
 
     def request(self, apdu):
         global deviceList
+        global valueRead
+        valueRead = None
         if _debug: Applications._debug("request %r", apdu)
 
         # save a copy of the request
@@ -95,9 +97,11 @@ class Applications(BIPSimpleApplication):
         if isinstance(apdu, Error):
             sys.stdout.write("error: %s\n" % (apdu.errorCode,))
             sys.stdout.flush()
+            valueRead = apdu
 
         elif isinstance(apdu, AbortPDU):
             apdu.debug_contents()
+            valueRead = apdu
 
         elif isinstance(apdu, SimpleAckPDU):
             sys.stdout.write("ack\n")
@@ -159,6 +163,7 @@ class Applications(BIPSimpleApplication):
                         datatype = get_datatype(objectIdentifier[0], propertyIdentifier)
                         if _debug: Applications._debug("    - datatype: %r", datatype)
                         if not datatype:
+                            valueRead.append(None)
                             raise TypeError("unknown datatype")
 
                         # special case for array parts, others are managed by cast_out
@@ -214,359 +219,333 @@ def Init():
 
 def Request_whois(args):
     args = args.split()
-    try:
-        # build a request
-        request = WhoIsRequest()
-        if (len(args) == 1) or (len(args) == 3):
-            request.pduDestination = Address(args[0])
-            del args[0]
-        else:
-            request.pduDestination = GlobalBroadcast()
 
-        if len(args) == 2:
-            request.deviceInstanceRangeLowLimit = int(args[0])
-            request.deviceInstanceRangeHighLimit = int(args[1])
+    # build a request
+    request = WhoIsRequest()
+    if (len(args) == 1) or (len(args) == 3):
+        request.pduDestination = Address(args[0])
+        del args[0]
+    else:
+        request.pduDestination = GlobalBroadcast()
 
-        # return the request
-        return request
+    if len(args) == 2:
+        request.deviceInstanceRangeLowLimit = int(args[0])
+        request.deviceInstanceRangeHighLimit = int(args[1])
 
-    except Exception as error:
-        print("exception: %r" % error)
+    ### return the request
+    return request
 
 def Request_read(args):
-
     if _debug: print("build read reqeust: ", args)
 
-    try:
-        addr, obj_type, obj_inst, prop_id = args[:4]
+    addr, obj_type, obj_inst, prop_id = args[:4]
+
+    if obj_type.isdigit():
+        obj_type = int(obj_type)
+    elif not get_object_class(obj_type):
+        raise ValueError("unknown object type")
+
+    obj_inst = int(obj_inst)
+
+    datatype = get_datatype(obj_type, prop_id)
+    if not datatype:
+        raise ValueError("invalid property for object type")
+
+    # build a request
+    request = ReadPropertyRequest(
+        objectIdentifier=(obj_type, obj_inst),
+        propertyIdentifier=prop_id,
+        )
+    request.pduDestination = Address(addr)
+
+    if len(args) == 5:
+        request.propertyArrayIndex = int(args[4])
+    if _debug: print("    - request: %r" % request)
+
+    ### return the request
+    return request
+
+def request_readMulti(args):
+    if _debug: print ("build readMulti reqeust: ", args)
+
+    i = 0
+    addr = args[i]
+    i += 1
+
+    read_access_spec_list = []
+    while i < len(args):
+        obj_type = args[i]
+        i += 1
 
         if obj_type.isdigit():
             obj_type = int(obj_type)
         elif not get_object_class(obj_type):
             raise ValueError("unknown object type")
 
-        obj_inst = int(obj_inst)
-
-        datatype = get_datatype(obj_type, prop_id)
-        if not datatype:
-            raise ValueError("invalid property for object type")
-
-        # build a request
-        request = ReadPropertyRequest(
-            objectIdentifier=(obj_type, obj_inst),
-            propertyIdentifier=prop_id,
-            )
-        request.pduDestination = Address(addr)
-
-        if len(args) == 5:
-            request.propertyArrayIndex = int(args[4])
-        if _debug: print("    - request: %r" % request)
-
-        ### return the request
-        return request
-
-    except Exception as error:
-        print("exception: %r" % error)
-
-def request_readMulti(args):
-    if _debug: print ("build readMulti reqeust: ", args)
-
-    try:
-        i = 0
-        addr = args[i]
+        obj_inst = int(args[i])
         i += 1
 
-        read_access_spec_list = []
+        prop_reference_list = []
         while i < len(args):
-            obj_type = args[i]
+        ### bug here, if the name of next object is a kind of property,
+        ### then there will be a bug, for example the object notificationClass
+            prop_id = args[i]
+            if prop_id not in PropertyIdentifier.enumerations:
+                break
+
             i += 1
+            if prop_id in ('all', 'required', 'optional'):
+                pass
+            else:
+                datatype = get_datatype(obj_type, prop_id)
+                if not datatype:
+                    raise ValueError("invalid property for object type")
 
-            if obj_type.isdigit():
-                obj_type = int(obj_type)
-            elif not get_object_class(obj_type):
-                raise ValueError("unknown object type")
-
-            obj_inst = int(args[i])
-            i += 1
-
-            prop_reference_list = []
-            while i < len(args):
-            ### bug here, if the name of next object is a kind of property,
-            ### then there will be a bug, for example the object notificationClass
-                prop_id = args[i]
-                if prop_id not in PropertyIdentifier.enumerations:
-                    break
-
-                i += 1
-                if prop_id in ('all', 'required', 'optional'):
-                    pass
-                else:
-                    datatype = get_datatype(obj_type, prop_id)
-                    if not datatype:
-                        raise ValueError("invalid property for object type")
-
-                # build a property reference
-                prop_reference = PropertyReference(
-                    propertyIdentifier=prop_id,
-                    )
-
-                # check for an array index
-                if (i < len(args)) and args[i].isdigit():
-                    prop_reference.propertyArrayIndex = int(args[i])
-                    i += 1
-                # add it to the list
-                prop_reference_list.append(prop_reference)
-
-            # check for at least one property
-            if not prop_reference_list:
-                raise ValueError("provide at least one property")
-
-            # build a read access specification
-            read_access_spec = ReadAccessSpecification(
-                objectIdentifier=(obj_type, obj_inst),
-                listOfPropertyReferences=prop_reference_list,
+            # build a property reference
+            prop_reference = PropertyReference(
+                propertyIdentifier=prop_id,
                 )
 
+            # check for an array index
+            if (i < len(args)) and args[i].isdigit():
+                prop_reference.propertyArrayIndex = int(args[i])
+                i += 1
             # add it to the list
-            read_access_spec_list.append(read_access_spec)
-        # check for at least one
-        if not read_access_spec_list:
-            raise RuntimeError("at least one read access specification required")
+            prop_reference_list.append(prop_reference)
 
-        # build the request
-        request = ReadPropertyMultipleRequest(
-            listOfReadAccessSpecs=read_access_spec_list,
+        # check for at least one property
+        if not prop_reference_list:
+            raise ValueError("provide at least one property")
+
+        # build a read access specification
+        read_access_spec = ReadAccessSpecification(
+            objectIdentifier=(obj_type, obj_inst),
+            listOfPropertyReferences=prop_reference_list,
             )
-        request.pduDestination = Address(addr)
-        if _debug: print("    - request: %r" % request)
 
-        # give it to the application
-        return request
+        # add it to the list
+        read_access_spec_list.append(read_access_spec)
+    # check for at least one
+    if not read_access_spec_list:
+        raise RuntimeError("at least one read access specification required")
 
-    except Exception as error:
-        print ("exception: %r" % error)
+    # build the request
+    request = ReadPropertyMultipleRequest(
+        listOfReadAccessSpecs=read_access_spec_list,
+        )
+    request.pduDestination = Address(addr)
+    if _debug: print("    - request: %r" % request)
+
+    ### return the request
+    return request
 
 def request_write(args):
     if _debug: ("build write request: %r" % args)
 
+    addr, obj_type, obj_inst, prop_id = args[:4]
+    if obj_type.isdigit():
+        obj_type = int(obj_type)
+    obj_inst = int(obj_inst)
+    value = args[4]
+
+    indx = None
+    if len(args) >= 6:
+        if args[5] != "-":
+            indx = int(args[5])
+    if _debug: print("    - indx: %r" % indx)
+
+    priority = None
+    if len(args) >= 7:
+        priority = int(args[6])
+    if _debug: print("    - priority: %r" % priority)
+
+    # get the datatype
+    datatype = get_datatype(obj_type, prop_id)
+    if _debug: print("    - datatype: %r" % datatype)
+
+    # change atomic values into something encodeable, null is a special case
+    if (value == 'null'):
+        value = Null()
+    elif issubclass(datatype, Atomic):
+        if datatype is Integer:
+            value = int(value)
+        elif datatype is Real:
+            value = float(value)
+        elif datatype is Unsigned:
+            value = int(value)
+        value = datatype(value)
+    elif issubclass(datatype, Array) and (indx is not None):
+        if indx == 0:
+            value = Integer(value)
+        elif issubclass(datatype.subtype, Atomic):
+            value = datatype.subtype(value)
+        elif not isinstance(value, datatype.subtype):
+            raise TypeError("invalid result datatype, expecting %s" % (datatype.subtype.__name__,))
+    elif not isinstance(value, datatype):
+        raise TypeError("invalid result datatype, expecting %s" % (datatype.__name__,))
+    if _debug: print("    - encodeable value: %r %s" % value, type(value))
+
+    # build a request
+    request = WritePropertyRequest(
+        objectIdentifier=(obj_type, obj_inst),
+        propertyIdentifier=prop_id
+        )
+    request.pduDestination = Address(addr)
+
+    # save the value
+    request.propertyValue = Any()
     try:
-        addr, obj_type, obj_inst, prop_id = args[:4]
-        if obj_type.isdigit():
-            obj_type = int(obj_type)
-        obj_inst = int(obj_inst)
-        value = args[4]
-
-        indx = None
-        if len(args) >= 6:
-            if args[5] != "-":
-                indx = int(args[5])
-        if _debug: print("    - indx: %r" % indx)
-
-        priority = None
-        if len(args) >= 7:
-            priority = int(args[6])
-        if _debug: print("    - priority: %r" % priority)
-
-        # get the datatype
-        datatype = get_datatype(obj_type, prop_id)
-        if _debug: print("    - datatype: %r" % datatype)
-
-        # change atomic values into something encodeable, null is a special case
-        if (value == 'null'):
-            value = Null()
-        elif issubclass(datatype, Atomic):
-            if datatype is Integer:
-                value = int(value)
-            elif datatype is Real:
-                value = float(value)
-            elif datatype is Unsigned:
-                value = int(value)
-            value = datatype(value)
-        elif issubclass(datatype, Array) and (indx is not None):
-            if indx == 0:
-                value = Integer(value)
-            elif issubclass(datatype.subtype, Atomic):
-                value = datatype.subtype(value)
-            elif not isinstance(value, datatype.subtype):
-                raise TypeError("invalid result datatype, expecting %s" % (datatype.subtype.__name__,))
-        elif not isinstance(value, datatype):
-            raise TypeError("invalid result datatype, expecting %s" % (datatype.__name__,))
-        if _debug: print("    - encodeable value: %r %s" % value, type(value))
-
-        # build a request
-        request = WritePropertyRequest(
-            objectIdentifier=(obj_type, obj_inst),
-            propertyIdentifier=prop_id
-            )
-        request.pduDestination = Address(addr)
-
-        # save the value
-        request.propertyValue = Any()
-        try:
-            request.propertyValue.cast_in(value)
-        except Exception as error:
-            print("WriteProperty cast error: %r" % error)
-
-        # optional array index
-        if indx is not None:
-            request.propertyArrayIndex = indx
-
-        # optional priority
-        if priority is not None:
-            request.priority = priority
-
-        if _debug: print ("    - request: %r" % request)
-
-        # give it to the application
-        return request
-
+        request.propertyValue.cast_in(value)
     except Exception as error:
-        print ("exception: %r" % error)
+        print("WriteProperty cast error: %r" % error)
+
+    # optional array index
+    if indx is not None:
+        request.propertyArrayIndex = indx
+
+    # optional priority
+    if priority is not None:
+        request.priority = priority
+
+    if _debug: print ("    - request: %r" % request)
+
+    ### return the request
+    return request
 
 def request_writeMulti(args):
     if _debug: print ("build write request: %r" % args)
 
-    try:
-        i = 0
-        addr = args[i]
+    i = 0
+    addr = args[i]
+    i += 1
+
+    write_access_spec_list = []
+    while i < len(args):
+        obj_type = args[i]
         i += 1
 
-        write_access_spec_list = []
+        if obj_type.isdigit():
+            obj_type = int(obj_type)
+
+        obj_inst = args[i]
+        i += 1
+        obj_inst = int(obj_inst)
+
+
+        prop_value_list = []
         while i < len(args):
-            obj_type = args[i]
+            prop_id = args[i]
+            if prop_id not in PropertyIdentifier.enumerations:
+                break
+            i += 1
+            if prop_id in ('all', 'required', 'optional'):
+                pass
+            else:
+                datatype = get_datatype(obj_type, prop_id)
+                if not datatype:
+                    raise ValueError("invalid property for object type")
+
+            value = args[i]
             i += 1
 
-            if obj_type.isdigit():
-                obj_type = int(obj_type)
-
-            obj_inst = args[i]
-            i += 1
-            obj_inst = int(obj_inst)
-
-
-            prop_value_list = []
-            while i < len(args):
-                prop_id = args[i]
-                if prop_id not in PropertyIdentifier.enumerations:
-                    break
+            # check for an array index
+            indx = None
+            if (i < len(args)) and args[i].isdigit():
+                indx = int(args[i])
                 i += 1
-                if prop_id in ('all', 'required', 'optional'):
-                    pass
-                else:
-                    datatype = get_datatype(obj_type, prop_id)
-                    if not datatype:
-                        raise ValueError("invalid property for object type")
-
-                value = args[i]
+            elif args[i] == '-':
                 i += 1
 
-                # check for an array index
-                indx = None
-                if (i < len(args)) and args[i].isdigit():
-                    indx = int(args[i])
-                    i += 1
-                elif args[i] == '-':
-                    i += 1
+            # check for an priority
+            priority = None
+            if (i < len(args)) and args[i].isdigit():
+                priority = int(args[i])
+                i += 1
 
-                # check for an priority
-                priority = None
-                if (i < len(args)) and args[i].isdigit():
-                    priority = int(args[i])
-                    i += 1
+            # change atomic values into something encodeable, null is a special case
+            if (value == 'null'):
+                value = Null()
+            elif issubclass(datatype, Atomic):
+                if datatype is Integer:
+                    value = int(value)
+                elif datatype is Real:
+                    value = float(value)
+                elif datatype is Unsigned:
+                    value = int(value)
+                value = datatype(value)
+            elif issubclass(datatype, Array) and (indx is not None):
+                if indx == 0:
+                    value = Integer(value)
+                elif issubclass(datatype.subtype, Atomic):
+                    value = datatype.subtype(value)
+                elif not isinstance(value, datatype.subtype):
+                    raise TypeError("invalid result datatype, expecting %s" % (datatype.subtype.__name__,))
+            elif not isinstance(value, datatype):
+                raise TypeError("invalid result datatype, expecting %s" % (datatype.__name__,))
+            if _debug: print("    - encodeable value: %r %s" % value, type(value))
 
-                # change atomic values into something encodeable, null is a special case
-                if (value == 'null'):
-                    value = Null()
-                elif issubclass(datatype, Atomic):
-                    if datatype is Integer:
-                        value = int(value)
-                    elif datatype is Real:
-                        value = float(value)
-                    elif datatype is Unsigned:
-                        value = int(value)
-                    value = datatype(value)
-                elif issubclass(datatype, Array) and (indx is not None):
-                    if indx == 0:
-                        value = Integer(value)
-                    elif issubclass(datatype.subtype, Atomic):
-                        value = datatype.subtype(value)
-                    elif not isinstance(value, datatype.subtype):
-                        raise TypeError("invalid result datatype, expecting %s" % (datatype.subtype.__name__,))
-                elif not isinstance(value, datatype):
-                    raise TypeError("invalid result datatype, expecting %s" % (datatype.__name__,))
-                if _debug: print("    - encodeable value: %r %s" % value, type(value))
-
-                # build a property value
-                prop_value = PropertyValue(
-                    propertyIdentifier=prop_id,
-                    )
-                prop_value.value = Any()
-                try:
-                    prop_value.value.cast_in(value)
-                except Exception as error:
-                    print("WriteProperty cast error: %r" % error)
-
-                # optional array index
-                if indx is not None:
-                    prop_value.propertyArrayIndex = indx
-                # optional priority
-                if indx is not None:
-                    prop_value.priority = priority
-
-                # add it to the list
-                prop_value_list.append(prop_value)
-
-            # check for at least one property
-            if not prop_value_list:
-                raise ValueError("provide at least one property")
-
-            # build a read access specification
-            write_access_spec = WriteAccessSpecification(
-                objectIdentifier=(obj_type, obj_inst),
-                listOfProperties=prop_value_list,
+            # build a property value
+            prop_value = PropertyValue(
+                propertyIdentifier=prop_id,
                 )
+            prop_value.value = Any()
+            try:
+                prop_value.value.cast_in(value)
+            except Exception as error:
+                print("WriteProperty cast error: %r" % error)
+
+            # optional array index
+            if indx is not None:
+                prop_value.propertyArrayIndex = indx
+            # optional priority
+            if indx is not None:
+                prop_value.priority = priority
 
             # add it to the list
-            write_access_spec_list.append(write_access_spec)
-        # check for at least one
-        if not write_access_spec_list:
-            raise RuntimeError("at least one read access specification required")
+            prop_value_list.append(prop_value)
 
-        # build the request
-        request = WritePropertyMultipleRequest(
-            listOfWriteAccessSpecs=write_access_spec_list,
+        # check for at least one property
+        if not prop_value_list:
+            raise ValueError("provide at least one property")
+
+        # build a read access specification
+        write_access_spec = WriteAccessSpecification(
+            objectIdentifier=(obj_type, obj_inst),
+            listOfProperties=prop_value_list,
             )
-        request.pduDestination = Address(addr)
-        if _debug: print("    - request: %r" % request)
 
-        # give it to the application
-        return request
+        # add it to the list
+        write_access_spec_list.append(write_access_spec)
+    # check for at least one
+    if not write_access_spec_list:
+        raise RuntimeError("at least one read access specification required")
 
-    except Exception as error:
-        print ("exception: %r" % error)
+    # build the request
+    request = WritePropertyMultipleRequest(
+        listOfWriteAccessSpecs=write_access_spec_list,
+        )
+    request.pduDestination = Address(addr)
+    if _debug: print("    - request: %r" % request)
+
+    ### return the request
+    return request
 
 
 def write_prop(args):
     request = request_write(args)
-    if request == None:
-        return
-    ### do the service request
+
     this_app.request(request)
     run_timer(timer=2)
 
 def write_multi(args):
     request = request_writeMulti(args)
-    if request == None:
-        return
     ### do the service request
     this_app.request(request)
     run_timer(timer=2)
 
 def read_prop(args):
     request = Request_read(args)
-    if request == None:
-        return None
-    ### do the service request
+
     this_app.request(request)
     run_timer(timer=2)
     return valueRead
@@ -574,8 +553,6 @@ def read_prop(args):
 
 def read_multi(args):
     request = request_readMulti(args)
-    if request == None:
-        return None
 
     this_app.request(request)
     run_timer(timer=2)
