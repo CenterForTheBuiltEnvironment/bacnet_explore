@@ -18,6 +18,7 @@ from smap import actuate
 import BACpypes_applications as BACpypesAPP
 from bacpypes.apdu import Error, AbortPDU, AbortReason
 from time import sleep
+from subprocess import Popen, PIPE
 
 def _get_class(name):
     cmps = name.split('.')
@@ -103,20 +104,53 @@ class Driver(SmapDriver):
                     if not self._matches(obj['name'], self.points): continue
                     yield self.get_path(dev, obj)
 
-    def _read_points(self, args, devOld, batch_size):
+    def _read_points(self, args, path_tmp, devOld, batch_size):
 
         num_points = (len(args)-1)/3
         iteration = num_points // batch_size
         val = []
+        path_result = []
         for i in range(iteration+1):
             args_batch = [args[0]]
+            path_read = []
             if i == iteration:
                 args_batch += args[3*i*batch_size+1:]
+                path_read += path_tmp[i*batch_size:]
             else:
                 args_batch += args[3*i*batch_size+1:3*(i+1)*batch_size+1]
-
+                path_read += path_tmp[i*batch_size:(i+1)*bat]
             try:
                 val_seperate = BACpypesAPP.read_multi(args)
+
+                if isinstance(val_seperate, Error):
+                    print "cannot reach the device ", devOld['name'], devOld['inst']
+
+                    subject = "Read points error/Error"
+                    msg = "cannot reach the device " + devOld['name'] + " " + str(devOld['inst']) + \
+                    ". The args is: \n" + ' '.join(s for s in args) + "\nThe error is:\n"
+                    send_email(self.email_list, msg+str(val_seperate.errorCode), subject)
+                elif isinstance(val_seperate, AbortPDU):
+                    print "cannot reach the device ", devOld['name'], devOld['inst']
+
+                    subject = "Read points error/Abort"
+                    msg = "cannot reach the device " + devOld['name'] + " " + str(devOld['inst']) + \
+                    ". The args is: \n" + ' '.join(s for s in args) + \
+                    "\nRequest is abortted, and the abort reason is:\n"
+                    reason = AbortReason.enumerations
+                    for s in reason:
+                        if reason[s] == val_seperate.apduAbortRejectReason:
+                            rejectReason = s
+                    send_email(self.email_list, msg+rejectReason, subject)
+                elif val_seperate is None:
+                    print "cannot reach the device ", devOld['name'], devOld['inst']
+
+                    subject = "Read points error/None"
+                    msg = "cannot reach the device " + devOld['name'] + " " + str(devOld['inst']) + \
+                    ". The args is: \n" + ' '.join(s for s in args)
+                    send_email(self.email_list, msg, subject)
+                else:
+                    val += val_seperate
+                    path_result += path_read
             except Exception as error:
                 print error
                 print "cannot reach the device ", devOld['name'], devOld['inst']
@@ -126,31 +160,10 @@ class Driver(SmapDriver):
                 ". The args is: \n" + ' '.join(s for s in args) + "\nThe error is:\n"
                 send_email(self.email_list, msg+str(error), subject)
 
-            if isinstance(val_seperate, Error):
-                print "cannot reach the device ", devOld['name'], devOld['inst']
-
-                subject = "Read points error"
-                msg = "cannot reach the device " + devOld['name'] + " " + str(devOld['inst']) + \
-                ". The args is: \n" + ' '.join(s for s in args) + "\nThe error is:\n"
-                send_email(self.email_list, msg+str(val_seperate.errorCode), subject)
-            elif isinstance(val_seperate, AbortPDU):
-                print "cannot reach the device ", devOld['name'], devOld['inst']
-
-                subject = "Read points error"
-                msg = "cannot reach the device " + devOld['name'] + " " + str(devOld['inst']) + \
-                ". The args is: \n" + ' '.join(s for s in args) + \
-                "\nRequest is abortted, and the abort reason is:\n"
-                reason = AbortReason.enumerations
-                for s in reason:
-                    if reason[s] == val_seperate.apduAbortRejectReason:
-                        rejectReason = s
-                send_email(self.email_list, msg+rejectReason, subject)
-            else:
-                val += val_seperate
         if len(val) == 0:
             return None
         else:
-            return val
+            return val, path_result
 
     def start(self):
         self.caller = periodicSequentialCall(self.update)
@@ -179,7 +192,7 @@ class Driver(SmapDriver):
                     else:
                         batch_size = 2
 
-                    val_tmp = yield threads.deferToThread(self._read_points, args, devOld, batch_size)
+                    val_tmp, path_tmp = yield threads.deferToThread(self._read_points, args, path_tmp, devOld, batch_size)
                     if val_tmp == None:
                         print "cannot reach the device ", devOld['name'], devOld['inst']
                     else:
@@ -193,7 +206,7 @@ class Driver(SmapDriver):
             batch_size = 50
         else:
             batch_size = 2
-        val_tmp = yield threads.deferToThread(self._read_points, args, devOld, batch_size)
+        val_tmp, path_tmp = yield threads.deferToThread(self._read_points, args, path_tmp, devOld, batch_size)
         if val_tmp == None:
             print "cannot reach the device ", devOld['name'], devOld['inst']
         else:
