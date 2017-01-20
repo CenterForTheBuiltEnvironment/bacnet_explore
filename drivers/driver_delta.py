@@ -1,4 +1,6 @@
-
+#### run smap driver
+#### sudo /home/.../bin/python /home/.../bin/twistd --logfile=/home/.../twistd.log --pidfile=/home/.../twistd.pid smap /home/.../conf/sdh_s1.ini
+####
 import json
 import re
 import operator
@@ -265,4 +267,3 @@ class DiscreteActuator(BACnetActuator, actuate.NStateActuator):
     def __init__(self, **opts):
         actuate.NStateActuator.__init__(self, opts['states'])
         BACnetActuator.__init__(self, **opts)
-

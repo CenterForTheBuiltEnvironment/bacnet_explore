@@ -4,6 +4,9 @@ Created on Thu Nov 10 15:22:11 2016
 
 @author: erdongwei
 """
+### run scan function
+### python BACpypes_scan.py
+
 
 import BACpypes_applications as BACpypesAPP
 from bacpypes.object import get_datatype

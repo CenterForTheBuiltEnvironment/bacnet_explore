@@ -1,6 +1,6 @@
-### activate the virtual environment
-#activate_this = "/home/zhanwei/virt_env/virt_hvac/bin/activate_this.py"
-#execfile(activate_this, dict(__file__=activate_this))
+#### run smap driver
+#### sudo /home/.../bin/python /home/.../bin/twistd --logfile=/home/.../twistd.log --pidfile=/home/.../twistd.pid smap /home/.../conf/sdh_s1.ini
+####
 
 import json
 import re
