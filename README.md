@@ -8,6 +8,8 @@ BACpypes scan -- BACpypes scan function read commands from a config file, user c
 #### run scan function ####
 python BACpypes_scan.py
 
-BACpypes driver --The driver uses readPropertyMulti to read the present value of the points and post them on the website.
+BACpypes driver -- The driver uses readPropertyMulti to read the present value of the points and post them on the website.
 #### run smap driver ####
 sudo /home/.../bin/python /home/.../bin/twistd --logfile=/home/.../twistd.log --pidfile=/home/.../twistd.pid smap /home/.../conf/sdh_s1.ini
+
+Pybacnet_VS_BACpypes -- Compare the differences between Pybacnet and bacpypes.
