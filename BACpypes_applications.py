@@ -4,10 +4,9 @@ Created on Mon Nov  7 12:31:36 2016
 
 @author: erdongwei
 """
-
 import sys
 import time
-import configparser
+import ConfigParser
 
 from bacpypes.debugging import bacpypes_debugging, ModuleLogger
 from bacpypes.core import run, stop, run_timer
@@ -185,7 +184,7 @@ class Applications(BIPSimpleApplication):
 def Init():
     global this_app
 
-    opts = configparser.ConfigParser()
+    opts = ConfigParser.ConfigParser()
     opts.read('BACnet.ini')
     objectName = opts.get('BACpypes', 'objectName')
     objectIdentifier = opts.get('BACpypes', 'objectIdentifier')
