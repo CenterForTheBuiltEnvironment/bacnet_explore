@@ -7,6 +7,8 @@ Created on Thu Nov 10 15:22:11 2016
 ### run scan function
 ### python BACpypes_scan.py
 
+import sys
+sys.path.append("..")
 
 import BACpypes_applications as BACpypesAPP
 from bacpypes.object import get_datatype
