@@ -9,10 +9,13 @@ import time
 import ConfigParser
 
 from bacpypes.debugging import bacpypes_debugging, ModuleLogger
-from bacpypes.core import run, stop, run_timer
+from bacpypes.consolelogging import ConfigArgumentParser
+from bacpypes.core import run, stop, deferred
 from bacpypes.pdu import Address, GlobalBroadcast
 
-from bacpypes.app import LocalDeviceObject, BIPSimpleApplication
+from bacpypes.app import BIPSimpleApplication
+from bacpypes.service.device import LocalDeviceObject
+
 from bacpypes.apdu import ReadPropertyMultipleRequest, PropertyReference, \
     ReadAccessSpecification, ReadPropertyMultipleACK, \
     WritePropertyMultipleRequest, WriteAccessSpecification
@@ -181,11 +184,12 @@ class Applications(BIPSimpleApplication):
         ### finished this reading
         stop()
 
-def Init():
+def Init(ini_filename):
     global this_app
-
+    ### read initialization file
     opts = ConfigParser.ConfigParser()
-    opts.read('BACnet.ini')
+    opts.read(ini_filename)
+
     objectName = opts.get('BACpypes', 'objectName')
     objectIdentifier = opts.get('BACpypes', 'objectIdentifier')
     maxApduLengthAccepted = opts.get('BACpypes', 'maxApduLengthAccepted')
@@ -533,32 +537,33 @@ def request_writeMulti(args):
 def write_prop(args):
     request = request_write(args)
 
-    this_app.request(request)
-    run_timer(timer=2)
+    deferred(this_app.request, request)
+    run()
 
 def write_multi(args):
     request = request_writeMulti(args)
     ### do the service request
-    this_app.request(request)
-    run_timer(timer=2)
+    deferred(this_app.request, request)
+    run()
 
 def read_prop(args):
     request = Request_read(args)
 
-    this_app.request(request)
-    run_timer(timer=2)
+    deferred(this_app.request, request)
+    run()
     return valueRead
 
 
 def read_multi(args):
     request = request_readMulti(args)
 
-    this_app.request(request)
-    run_timer(timer=2)
+    deferred(this_app.request, request)
+    run()
     return valueRead
 
 def whois(args, timer=5):
     request = Request_whois(args)
-    this_app.request(request)
-    run_timer(timer=timer)
+
+    deferred(this_app.request, request)
+    run()
     return deviceList

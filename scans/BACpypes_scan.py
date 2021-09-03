@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Created on Thu Nov 10 15:22:11 2016
+Modified June 2017
 
 @author: erdongwei
 """
@@ -12,6 +13,7 @@ sys.path.append("..")
 
 import BACpypes_applications as BACpypesAPP
 from bacpypes.object import get_datatype
+from bacpypes.apdu import AbortPDU
 import ConfigParser
 from time import sleep
 import json
@@ -24,7 +26,7 @@ def read(args):
         try:
             results = BACpypesAPP.read_multi(args)
         except Exception as error:
-            print error
+            print(error)
         sleep(5)
         s += 1
     return results
@@ -73,7 +75,7 @@ def readObjects(objs, args, sleepTime, device):
     sleep(sleepTime)
 
     if objects is None:
-        print "cannot get the objects"
+        print("cannot get the objects")
         return None
 
     ### add object information to device
@@ -81,7 +83,7 @@ def readObjects(objs, args, sleepTime, device):
     for i in range(len(newobj)):
         curObject = []
         for k in range(3):
-            if objcontent[3*i+k] == 1:
+            if objcontent[3*i+k] == 1 and not isinstance(objects, AbortPDU):
                 curObject.append(objects[n])
                 n += 1
             else:
@@ -102,7 +104,7 @@ def readDevice(devs, sleepTime, batchSize):
     deviceinfo = read(args)
     sleep(sleepTime)
     if deviceinfo is None:
-        print "cannot read this device now"
+        print("cannot read this device now")
         return None
     name, desc, objsCount = deviceinfo[0], deviceinfo[1], deviceinfo[2]
 
@@ -123,13 +125,13 @@ def readDevice(devs, sleepTime, batchSize):
         objs, count = getobjects(devs, sleepTime, objsCount, count, batchSize)
 
         if objs is None:
-            print "cannot read this device now"
+            print("cannot read this device now")
             return None
 
         args = [str(devs.pduSource)]
         device = readObjects(objs, args, sleepTime, device)
         if device is None:
-            print "cannot read this device now"
+            print("cannot read this device now")
             return None
     return device
 
@@ -157,38 +159,39 @@ def main():
         try:
             devices = BACpypesAPP.whois('', timer)
         except Exception as error:
-            print error
+            print(error)
         sleep(sleepTime)
 
         for devs in devices:
-            print "begain to read device: ", devs.iAmDeviceIdentifier
+            print("begain to read device: ", devs.iAmDeviceIdentifier)
+            #if devs.iAmDeviceIdentifier[1] == 4:
             if devs.segmentationSupported == 'segmentedBoth':
                 batchSize = 50
             else:
                 batchSize = 2
             device = readDevice(devs, sleepTime, batchSize)
             if device is None:
-                print "Cannot get the information of ", devs.iAmDeviceIdentifier
+                print("Cannot get the information of ", devs.iAmDeviceIdentifier)
             device_list.append(device)
     else:
         for arg in args:
             try:
                 devices = BACpypesAPP.whois(arg, timer)
             except Exception as error:
-                print error
+                print(error)
             sleep(sleepTime)
 
             for devs in devices:
-                print "begain to read device: ", devs.iAmDeviceIdentifier
+                print("begain to read device: ", devs.iAmDeviceIdentifier)
                 if devs.segmentationSupported == 'segmentedBoth':
                     batchSize = 50
                 else:
                     batchSize = 2
                 device = readDevice(devs, sleepTime, batchSize)
                 if device is None:
-                    print "Cannot get the information of ", devs.iAmDeviceIdentifier
+                    print("Cannot get the information of ", devs.iAmDeviceIdentifier)
                 device_list.append(device)
-    print device_list
+    print(device_list)
     json.dump(device_list, fout)
     fout.close()
 
