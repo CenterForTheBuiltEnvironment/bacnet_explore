@@ -14,7 +14,7 @@ from bacpypes.core import run, stop, deferred
 from bacpypes.pdu import Address, GlobalBroadcast
 
 from bacpypes.app import BIPSimpleApplication
-from bacpypes.service.device import LocalDeviceObject
+from bacpypes.local.device import LocalDeviceObject
 
 from bacpypes.apdu import ReadPropertyMultipleRequest, PropertyReference, \
     ReadAccessSpecification, ReadPropertyMultipleACK, \
@@ -209,14 +209,14 @@ def Init(ini_filename):
         vendorIdentifier=int(vendorIdentifier),
         )
 
-    pss = ServicesSupported()
-    pss['whoIs'] = 1
-    pss['iAm'] = 1
-    pss['readProperty'] = 1
-    pss['writeProperty'] = 1
-    pss['readPropertyMultiple'] = 1
-    pss['writePropertyMultiple'] = 1
-    this_device.protocolServicesSupported = pss.value
+    # pss = ServicesSupported()
+    # pss['whoIs'] = 1
+    # pss['iAm'] = 1
+    # pss['readProperty'] = 1
+    # pss['writeProperty'] = 1
+    # pss['readPropertyMultiple'] = 1
+    # pss['writePropertyMultiple'] = 1
+    # this_device.protocolServicesSupported = pss.value
     this_app = Applications(this_device, str(address))
 
 

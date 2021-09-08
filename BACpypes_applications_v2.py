@@ -2,6 +2,8 @@ import sys, time
 import configparser
 from threading import Thread, Lock
 
+from collections import deque
+
 from bacpypes.debugging import bacpypes_debugging, ModuleLogger
 from bacpypes.consolelogging import ConfigArgumentParser
 
@@ -61,7 +63,7 @@ class ReadPropertyThread(Thread):
         temp_args = self._args
 
         addr, obj_type, obj_inst, prop_id = temp_args[:4]
-        obj_id = f"{obj_type}:{obj_inst}"
+        obj_id = "{}:{}".format(obj_type, obj_inst)
 
         if len(temp_args) == 5:
             args = (addr, obj_id, prop_id, temp_args[4])
@@ -128,6 +130,83 @@ class ReadPropertyThread(Thread):
             print("exception: %r", error)
 
         # all done
+        stop()
+
+
+@bacpypes_debugging
+class ReadPointListThread(Thread):
+
+    def __init__(self, point_list):
+        """
+        [(<addr> <objid> <prop>), (<addr> <objid> <prop>),]
+        """
+        if _debug: ReadPointListThread._debug("__init__%r", point_list)
+        Thread.__init__(self)
+
+        # turn the point list into a queue
+        self.point_queue = deque(point_list)
+
+        # make a list of the response values
+        self.response_values = []
+
+    def run(self):
+        if _debug: ReadPointListThread._debug("run")
+
+        # loop through the points
+        for addr, obj_type, obj_inst, prop_id in self.point_queue:
+
+            # build a request
+            obj_id = "{}:{}".format(obj_type, obj_inst)
+
+            obj_id = ObjectIdentifier(obj_id).value
+            if prop_id.isdigit():
+                prop_id = int(prop_id)
+
+            request = ReadPropertyRequest(
+                ObjectIdentifier=obj_id,
+                propertyIdentifier=prop_id,
+            )
+
+            request.pduDestination = Address(addr)
+            if _debug: ReadPointListThread._debug("    - request: %r", request)
+
+            # make an IOCB
+            iocb = IOCB(request)
+            if _debug: ReadPointListThread._debug("    - iocb: %r", iocb)
+
+            # give it to the application
+            deferred(this_application.request_io, iocb)
+
+            # wait for the response
+            iocb.wait()
+
+            if iocb.ioResponse:
+                apdu = iocb.ioResponse
+
+                # find the datatype
+                datatype = get_datatype(apdu.objectIdentifier[0], apdu.propertyIdentifier)
+                if _debug: ReadPointListThread._debug("    - datatype: %r", datatype)
+                if not datatype:
+                    raise TypeError("unknown datatype")
+
+                # special case for array parts, others are managed by cast_out
+                if issubclass(datatype, Array) and (apdu.propertyArrayIndex is not None):
+                    if apdu.propertyArrayIndex == 0:
+                        value = apdu.propertyValue.cast_out(Unsigned)
+                    else:
+                        value = apdu.propertyValue.cast_out(datatype.subtype)
+                else:
+                    value = apdu.propertyValue.cast_out(datatype)
+                if _debug: ReadPointListThread._debug("    - value: %r", value)
+
+                # save the value
+                self.response_values.append(value)
+
+            if iocb.ioError:
+                if _debug: ReadPointListThread._debug("     - error: %r", iocb.ioError)
+                self.response_values.append(iocb.ioError)
+
+        # done
         stop()
 
 
@@ -233,7 +312,7 @@ class WritePropertyThread(Thread):
         temp_args = self._args
 
         addr, obj_type, obj_inst, prop_id, value = temp_args[:5]
-        obj_id = f"{obj_type}:{obj_inst}"
+        obj_id = "{}:{}".format(obj_type, obj_inst)
 
         if len(temp_args) >= 7:
             args = (addr, obj_id, prop_id, value, temp_args[5], temp_args[6])
@@ -360,6 +439,13 @@ def read_prop(args):
     return valueRead
 
 
+def read_multi(args_batch):
+
+    response_values = [read_prop(n_arg) for n_arg in args_batch]
+
+    return response_values
+
+
 def write_prop(args):
     with lock_write:
         # create a thread supervisor
@@ -392,7 +478,7 @@ if __name__ == "__main__":
     # test read method
     read_args = (addr, obj_type, obj_inst, prop_id)
 
-    print(f"Reading current value...")
+    print("Reading current value...")
     old_value = read_prop(read_args)
     print(old_value)
 
@@ -402,11 +488,11 @@ if __name__ == "__main__":
     write_args = (addr, obj_type, obj_inst, prop_id, new_value)
     write_prop(write_args)
 
-    print(f"Wrote new value of {read_prop(read_args)} replacing old value of {old_value}")
+    print("Wrote new value of {} replacing old value of {}".format(read_prop(read_args), old_value))
 
-    print(f"Switching back to old value...")
+    print("Switching back to old value...")
 
     write_prop((addr, obj_type, obj_inst, prop_id, old_value))
-    print(f"Confirm that it switched to old value, {read_prop(read_args)}")
+    print("Confirm that it switched to old value, {}".format(read_prop(read_args)))
 
     import pdb; pdb.set_trace()
