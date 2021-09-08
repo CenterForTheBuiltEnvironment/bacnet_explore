@@ -7,7 +7,6 @@ Modified June 2017
 """
 ### run scan function
 ### python BACpypes_scan.py
-
 import sys
 sys.path.append("..")
 
